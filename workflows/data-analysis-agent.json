@@ -1,0 +1,223 @@
+{
+  "version": "0.1.0",
+  "kind": "workflow",
+  "data": {
+    "title": "Data Analysis Agent",
+    "desc": "AI agent untuk upload file, analisis data, dan generate report otomatis",
+    "default_block": {
+      "type": "start",
+      "title": "Start"
+    },
+    "blocks": [
+      {
+        "id": "start",
+        "type": "start",
+        "title": "Mulai Analisis",
+        "position": {"x": 80, "y": 100},
+        "data": {
+          "title": "Upload Data untuk Analisis",
+          "variables": [
+            {
+              "variable": "data_file",
+              "type": "file",
+              "label": "Upload File Data (CSV/Excel)",
+              "description": "Upload file CSV atau Excel yang akan dianalisis",
+              "required": true,
+              "options": {
+                "allowed_file_types": [".csv", ".xlsx", ".xls"]
+              }
+            },
+            {
+              "variable": "analysis_type",
+              "type": "select",
+              "label": "Jenis Analisis",
+              "description": "Pilih jenis analisis yang diinginkan",
+              "required": true,
+              "options": [
+                {"value": "descriptive", "label": "Descriptive Statistics"},
+                {"value": "trend", "label": "Trend Analysis"},
+                {"value": "correlation", "label": "Correlation Analysis"},
+                {"value": "comprehensive", "label": "Comprehensive Analysis"}
+              ],
+              "default": "comprehensive"
+            },
+            {
+              "variable": "target_column",
+              "type": "string",
+              "label": "Target Column (Opsional)",
+              "description": "Nama kolom utama untuk fokus analisis",
+              "required": false
+            }
+          ]
+        }
+      },
+      {
+        "id": "file_processor",
+        "type": "tool",
+        "title": "Process File",
+        "position": {"x": 280, "y": 100},
+        "data": {
+          "provider_id": "builtin",
+          "provider_type": "builtin",
+          "provider_name": "file",
+          "tool_name": "read_file",
+          "tool_parameters": {
+            "file": "{{#start.data_file#}}",
+            "format": "auto_detect"
+          }
+        }
+      },
+      {
+        "id": "data_validator",
+        "type": "code",
+        "title": "Validate Data",
+        "position": {"x": 480, "y": 100},
+        "data": {
+          "code_language": "python3",
+          "code": "import pandas as pd\nimport json\n\n# Parse file content\nfile_content = inputs['file_content']\nanalysis_type = inputs['analysis_type']\ntarget_column = inputs.get('target_column', '')\n\ntry:\n    # Try to read as CSV first\n    if file_content.strip().startswith('\"') or ',' in file_content:\n        df = pd.read_csv(io.StringIO(file_content))\n    else:\n        # Try Excel format\n        df = pd.read_excel(io.BytesIO(file_content))\n    \n    # Basic validation\n    if df.empty:\n        outputs = {\n            'validation_status': 'error',\n            'error_message': 'File kosong atau tidak dapat dibaca',\n            'df_info': None\n        }\n    else:\n        # Validate target column\n        if target_column and target_column not in df.columns:\n            target_column = ''\n        \n        # Get basic info\n        df_info = {\n            'shape': df.shape,\n            'columns': list(df.columns),\n            'dtypes': df.dtypes.to_dict(),\n            'missing_values': df.isnull().sum().to_dict(),\n            'target_column': target_column\n        }\n        \n        outputs = {\n            'validation_status': 'success',\n            'error_message': None,\n            'df_info': df_info,\n            'data_preview': df.head().to_dict('records')\n        }\n        \nexcept Exception as e:\n    outputs = {\n        'validation_status': 'error',\n        'error_message': f'Error membaca file: {str(e)}',\n        'df_info': None\n    }\n",
+          "variables": [
+            {
+              "variable": "file_content",
+              "value": "{{#file_processor.content#}}"
+            },
+            {
+              "variable": "analysis_type", 
+              "value": "{{#start.analysis_type#}}"
+            },
+            {
+              "variable": "target_column",
+              "value": "{{#start.target_column#}}"
+            }
+          ]
+        }
+      },
+      {
+        "id": "analysis_branch",
+        "type": "if-else",
+        "title": "Check Validation",
+        "position": {"x": 680, "y": 100},
+        "data": {
+          "conditions": [
+            {
+              "logical_operator": "and",
+              "conditions": [
+                {
+                  "variable_selector": ["data_validator", "validation_status"],
+                  "comparison_operator": "is",
+                  "value": "success"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "error_handler",
+        "type": "answer",
+        "title": "Error Response",
+        "position": {"x": 680, "y": 300},
+        "data": {
+          "answer": "❌ **Error dalam memproses file:**\\n\\n{{#data_validator.error_message#}}\\n\\n**Tips:**\\n- Pastikan file dalam format CSV atau Excel\\n- Periksa apakah file tidak corrupt\\n- Coba gunakan file dengan data yang lebih sederhana untuk testing"
+        }
+      },
+      {
+        "id": "data_analyzer",
+        "type": "code",
+        "title": "Analyze Data",
+        "position": {"x": 880, "y": 100},
+        "data": {
+          "code_language": "python3",
+          "code": "import pandas as pd\nimport numpy as np\nimport json\nfrom datetime import datetime\n\n# Get inputs\nfile_content = inputs['file_content']\nanalysis_type = inputs['analysis_type']\ndf_info = inputs['df_info']\ntarget_column = df_info.get('target_column', '')\n\n# Recreate DataFrame\nif file_content.strip().startswith('\"') or ',' in file_content:\n    df = pd.read_csv(io.StringIO(file_content))\nelse:\n    df = pd.read_excel(io.BytesIO(file_content))\n\n# Initialize analysis results\nanalysis_results = {\n    'timestamp': datetime.now().isoformat(),\n    'dataset_info': {\n        'rows': df.shape[0],\n        'columns': df.shape[1],\n        'column_names': list(df.columns),\n        'data_types': df.dtypes.to_dict()\n    }\n}\n\n# Descriptive Statistics\nif analysis_type in ['descriptive', 'comprehensive']:\n    numeric_columns = df.select_dtypes(include=[np.number]).columns.tolist()\n    if numeric_columns:\n        desc_stats = df[numeric_columns].describe()\n        analysis_results['descriptive_stats'] = desc_stats.to_dict()\n        \n        # Identify outliers using IQR method\n        outliers = {}\n        for col in numeric_columns:\n            Q1 = df[col].quantile(0.25)\n            Q3 = df[col].quantile(0.75)\n            IQR = Q3 - Q1\n            outlier_count = ((df[col] < (Q1 - 1.5 * IQR)) | (df[col] > (Q3 + 1.5 * IQR))).sum()\n            outliers[col] = int(outlier_count)\n        analysis_results['outliers'] = outliers\n\n# Trend Analysis\nif analysis_type in ['trend', 'comprehensive']:\n    date_columns = df.select_dtypes(include=['datetime64', 'object']).columns\n    trends = {}\n    \n    for col in date_columns:\n        try:\n            df[col] = pd.to_datetime(df[col])\n            if target_column and target_column in df.columns:\n                # Group by time periods and calculate trends\n                monthly_trend = df.groupby(df[col].dt.to_period('M'))[target_column].sum()\n                trends[f'{col}_monthly'] = monthly_trend.to_dict()\n        except:\n            continue\n    \n    analysis_results['trends'] = trends\n\n# Correlation Analysis\nif analysis_type in ['correlation', 'comprehensive']:\n    numeric_columns = df.select_dtypes(include=[np.number]).columns.tolist()\n    if len(numeric_columns) > 1:\n        correlation_matrix = df[numeric_columns].corr()\n        \n        # Find strong correlations (>0.7 or <-0.7)\n        strong_correlations = []\n        for i in range(len(correlation_matrix.columns)):\n            for j in range(i+1, len(correlation_matrix.columns)):\n                corr_value = correlation_matrix.iloc[i, j]\n                if abs(corr_value) > 0.7:\n                    strong_correlations.append({\n                        'column1': correlation_matrix.columns[i],\n                        'column2': correlation_matrix.columns[j],\n                        'correlation': round(corr_value, 3)\n                    })\n        \n        analysis_results['correlations'] = {\n            'matrix': correlation_matrix.to_dict(),\n            'strong_correlations': strong_correlations\n        }\n\n# Missing Values Analysis\nmissing_analysis = {\n    'total_missing': df.isnull().sum().sum(),\n    'missing_by_column': df.isnull().sum().to_dict(),\n    'missing_percentage': (df.isnull().sum() / len(df) * 100).to_dict()\n}\nanalysis_results['missing_values'] = missing_analysis\n\n# Key Insights Generation\ninsights = []\n\n# Data quality insights\nif missing_analysis['total_missing'] > 0:\n    insights.append(f\"⚠️ Dataset memiliki {missing_analysis['total_missing']} missing values\")\n\n# Size insights\nif df.shape[0] > 10000:\n    insights.append(f\"📊 Dataset berukuran besar dengan {df.shape[0]:,} baris\")\nelif df.shape[0] < 100:\n    insights.append(f\"📊 Dataset berukuran kecil dengan {df.shape[0]} baris\")\n\n# Correlation insights\nif 'correlations' in analysis_results and analysis_results['correlations']['strong_correlations']:\n    strong_corr_count = len(analysis_results['correlations']['strong_correlations'])\n    insights.append(f\"🔗 Ditemukan {strong_corr_count} korelasi kuat antar variabel\")\n\n# Outlier insights\nif 'outliers' in analysis_results:\n    total_outliers = sum(analysis_results['outliers'].values())\n    if total_outliers > 0:\n        insights.append(f\"📈 Terdeteksi {total_outliers} outliers dalam data\")\n\nanalysis_results['key_insights'] = insights\n\noutputs = {\n    'analysis_complete': True,\n    'analysis_results': analysis_results,\n    'summary': f\"Analisis {analysis_type} selesai untuk dataset {df.shape[0]}x{df.shape[1]}\"\n}\n",
+          "variables": [
+            {
+              "variable": "file_content",
+              "value": "{{#file_processor.content#}}"
+            },
+            {
+              "variable": "analysis_type",
+              "value": "{{#start.analysis_type#}}"
+            },
+            {
+              "variable": "df_info",
+              "value": "{{#data_validator.df_info#}}"
+            }
+          ]
+        }
+      },
+      {
+        "id": "report_generator",
+        "type": "llm",
+        "title": "Generate Report",
+        "position": {"x": 1080, "y": 100},
+        "data": {
+          "model": {
+            "provider": "openai",
+            "name": "gpt-4",
+            "mode": "chat",
+            "completion_params": {
+              "temperature": 0.3
+            }
+          },
+          "prompt_template": [
+            {
+              "role": "system",
+              "text": "Anda adalah seorang data analyst expert yang bertugas membuat laporan analisis data yang komprehensif dan mudah dipahami dalam bahasa Indonesia. Berikan insights yang actionable dan visualisasi yang direkomendasikan."
+            },
+            {
+              "role": "user", 
+              "text": "Buatkan laporan analisis data yang lengkap berdasarkan hasil analisis berikut:\\n\\n**Dataset Info:**\\n- Jumlah baris: {{#data_analyzer.analysis_results.dataset_info.rows#}}\\n- Jumlah kolom: {{#data_analyzer.analysis_results.dataset_info.columns#}}\\n- Kolom: {{#data_analyzer.analysis_results.dataset_info.column_names#}}\\n\\n**Key Insights:**\\n{{#data_analyzer.analysis_results.key_insights#}}\\n\\n**Hasil Analisis Lengkap:**\\n```json\\n{{#data_analyzer.analysis_results#}}\\n```\\n\\nBuat laporan dalam format berikut:\\n\\n# 📊 Laporan Analisis Data\\n\\n## 🔍 Executive Summary\\n[Ringkasan temuan utama dalam 2-3 kalimat]\\n\\n## 📈 Temuan Utama\\n[List 3-5 temuan penting dengan bullet points]\\n\\n## 📊 Statistik Deskriptif\\n[Rangkuman statistik dengan interpretasi]\\n\\n## ⚠️ Data Quality Issues\\n[Masalah kualitas data jika ada]\\n\\n## 💡 Rekomendasi\\n[3-5 rekomendasi actionable]\\n\\n## 📋 Next Steps\\n[Langkah selanjutnya yang disarankan]"
+            }
+          ]
+        }
+      },
+      {
+        "id": "final_answer",
+        "type": "answer",
+        "title": "Hasil Analisis",
+        "position": {"x": 1280, "y": 100},
+        "data": {
+          "answer": "{{#report_generator.text#}}\\n\\n---\\n\\n### 📋 Detail Teknis\\n\\n**File yang dianalisis:** {{#start.data_file.name#}}\\n**Jenis analisis:** {{#start.analysis_type#}}\\n**Waktu analisis:** {{#data_analyzer.analysis_results.timestamp#}}\\n\\n### 🔢 Quick Stats\\n- **Total baris:** {{#data_analyzer.analysis_results.dataset_info.rows#}}\\n- **Total kolom:** {{#data_analyzer.analysis_results.dataset_info.columns#}}\\n- **Missing values:** {{#data_analyzer.analysis_results.missing_values.total_missing#}}\\n\\n*Analisis selesai! Silakan upload file lain untuk analisis tambahan.*"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "start-to-processor",
+        "source": "start",
+        "target": "file_processor"
+      },
+      {
+        "id": "processor-to-validator", 
+        "source": "file_processor",
+        "target": "data_validator"
+      },
+      {
+        "id": "validator-to-branch",
+        "source": "data_validator", 
+        "target": "analysis_branch"
+      },
+      {
+        "id": "branch-to-error",
+        "source": "analysis_branch",
+        "target": "error_handler",
+        "sourceHandle": "false"
+      },
+      {
+        "id": "branch-to-analyzer",
+        "source": "analysis_branch",
+        "target": "data_analyzer", 
+        "sourceHandle": "true"
+      },
+      {
+        "id": "analyzer-to-report",
+        "source": "data_analyzer",
+        "target": "report_generator"
+      },
+      {
+        "id": "report-to-answer",
+        "source": "report_generator",
+        "target": "final_answer"
+      }
+    ]
+  }
+}
